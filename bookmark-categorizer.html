@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>书签分类器 · Chrome 书签自动分类</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#ffffff; --ink:#1f2430; --muted:#6b7280; --line:#e5e7eb;
+    --brand:#1e40af; --brand-weak:#eef2ff; --danger:#dc2626; --ok:#16a34a;
+    --radius:12px; --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.1);
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none !important}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.55; -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--brand); text-decoration:none}
+  a:hover{text-decoration:underline}
+  button{font:inherit; cursor:pointer}
+  .wrap{max-width:1080px; margin:0 auto; padding:24px 16px 48px}
+
+  header.top{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:6px}
+  header.top h1{font-size:22px; margin:0; letter-spacing:.5px}
+  header.top .sub{color:var(--muted); font-size:13px}
+
+  .banner{display:flex; gap:10px; align-items:flex-start; border-radius:10px; padding:10px 14px; font-size:13px; margin:12px 0; border:1px solid}
+  .banner.info{background:#eff6ff; border-color:#bfdbfe; color:#1e3a8a}
+  .banner.warn{background:#fffbeb; border-color:#fde68a; color:#92400e}
+  .banner.error{background:#fef2f2; border-color:#fecaca; color:#991b1b}
+
+  /* 载入区 */
+  .dropzone{
+    width:100%; border:2px dashed #c7d2fe; background:var(--brand-weak); color:var(--brand);
+    border-radius:var(--radius); padding:28px 16px; text-align:center; display:block;
+    transition:background .15s, border-color .15s;
+  }
+  .dropzone:hover,.dropzone.dragover{background:#e0e7ff; border-color:var(--brand)}
+  .dropzone .big{font-size:15px; font-weight:600}
+  .dropzone .small{font-size:12.5px; color:var(--muted); margin-top:4px}
+  .loadbtns{display:flex; gap:10px; flex-wrap:wrap; margin-top:12px}
+  .btn{
+    border:1px solid var(--line); background:var(--card); color:var(--ink);
+    border-radius:8px; padding:7px 14px; font-size:13.5px; box-shadow:var(--shadow);
+  }
+  .btn:hover{border-color:#c7d2fe; background:#f8faff}
+  .btn.primary{background:var(--brand); border-color:var(--brand); color:#fff}
+  .btn.primary:hover{background:#1b389b}
+  .btn:focus-visible,.dropzone:focus-visible,.chip:focus-visible,.searchbox input:focus-visible,section.cat h2 button:focus-visible{
+    outline:2px solid var(--brand); outline-offset:2px;
+  }
+  .steps{margin:18px 0 0; padding:0; list-style:none; display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px}
+  .steps li{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; font-size:13px}
+  .steps b{display:block; font-size:13.5px; margin-bottom:2px}
+  .steps span{color:var(--muted)}
+  code.kbd{background:#eef2f7; border:1px solid var(--line); border-radius:5px; padding:0 5px; font-size:12px}
+
+  /* 统计 */
+  .statbar{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:16px 0 12px}
+  .stat{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 14px}
+  .stat .num{font-size:22px; font-weight:700; line-height:1.2}
+  .stat .lbl{font-size:12px; color:var(--muted)}
+  .actions{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px}
+
+  /* 控件 */
+  .controls{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:6px; position:sticky; top:0; z-index:5; background:var(--bg); padding:8px 0 6px}
+  .searchbox{flex:1 1 260px; min-width:220px}
+  .searchbox input{
+    width:100%; border:1px solid var(--line); border-radius:8px; padding:8px 12px; font-size:14px; background:var(--card);
+  }
+  .searchbox input::placeholder{color:#9ca3af}
+  .chips{display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 18px}
+  .chip{
+    display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); background:var(--card);
+    border-radius:999px; padding:5px 12px; font-size:13px; color:var(--ink);
+  }
+  .chip .dot{width:8px; height:8px; border-radius:50%; display:inline-block}
+  .chip .cnt{color:var(--muted); font-size:12px}
+  .chip[aria-pressed="true"]{border-color:var(--brand); background:var(--brand); color:#fff}
+  .chip[aria-pressed="true"] .cnt{color:#dbeafe}
+
+  /* 结果 */
+  section.cat{margin-bottom:14px}
+  section.cat > h2{margin:0 0 8px; font-size:14.5px}
+  section.cat > h2 button{
+    all:unset; cursor:pointer; display:flex; align-items:center; gap:8px; width:100%;
+    padding:4px 2px; border-radius:6px;
+  }
+  section.cat > h2 .dot{width:10px; height:10px; border-radius:50%}
+  section.cat > h2 .cnt{color:var(--muted); font-size:12.5px; font-weight:400}
+  section.cat > h2 .arrow{margin-left:auto; color:var(--muted); font-size:12px; transition:transform .15s}
+  section.cat.collapsed .arrow{transform:rotate(-90deg)}
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(165px,1fr)); gap:8px}
+  section.cat.collapsed .grid{display:none}
+  .card{
+    display:flex; gap:7px; align-items:flex-start; background:var(--card); border:1px solid var(--line);
+    border-radius:8px; padding:7px 9px; min-width:0; position:relative;
+  }
+  .card .del{
+    all:unset; cursor:pointer; position:absolute; top:1px; right:3px; width:18px; height:18px;
+    display:flex; align-items:center; justify-content:center; border-radius:5px;
+    color:var(--muted); font-size:14px; line-height:1; opacity:0; background:transparent;
+  }
+  .card:hover .del,.card .del:focus-visible{opacity:1}
+  .card .del:hover{color:var(--danger); background:#fef2f2}
+  .card.drag-src{opacity:.35}
+  section.cat.drop-over{outline:2px dashed var(--brand); outline-offset:3px; border-radius:8px}
+  body.dragging{cursor:grabbing !important}
+  body.dragging *{user-select:none !important}
+  .drag-ghost{
+    position:fixed; z-index:99; pointer-events:none; opacity:.92;
+    box-shadow:0 8px 20px rgba(16,24,40,.25); border-color:var(--brand) !important;
+    transform:rotate(2deg);
+  }
+  section.cat > h2 .cat-del{
+    all:unset; cursor:pointer; color:var(--muted); font-size:11.5px; line-height:1;
+    padding:3px 6px; border-radius:5px; margin-left:6px;
+  }
+  section.cat > h2 .cat-del:hover{color:var(--danger); background:#fef2f2}
+  .cat-empty{
+    color:var(--muted); font-size:12.5px; border:1px dashed var(--line); border-radius:8px;
+    padding:14px; margin:12px 0 4px; background:rgba(148,163,184,.04);
+  }
+  .avatar{
+    flex:0 0 22px; width:22px; height:22px; border-radius:6px; display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size:11px; margin-top:1px;
+  }
+  .card .meta{min-width:0}
+  .card .t{display:block; font-weight:600; font-size:12.5px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .card a.t:hover{color:var(--brand); text-decoration:none}
+  .card .u{font-size:10.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .card .folder{
+    display:inline-block; margin-top:3px; font-size:10px; color:var(--muted); background:#f3f4f6;
+    border-radius:4px; padding:0 5px; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .empty-result{padding:28px; text-align:center; color:var(--muted); font-size:14px; background:var(--card); border:1px dashed var(--line); border-radius:10px}
+  .more-note{font-size:12px; color:var(--muted); margin-top:6px}
+  .hint{font-size:12px; color:var(--muted); margin:2px 0 16px}
+  .hint b{color:var(--ink); font-weight:600}
+
+  /* 新增书签表单 */
+  .add-form{
+    background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px;
+    margin-bottom:14px; display:grid; gap:8px;
+  }
+  .add-form .row{display:flex; gap:8px; flex-wrap:wrap}
+  .add-form label{font-size:12.5px; color:var(--muted); display:flex; align-items:center; gap:6px}
+  .add-form input[type=text],.add-form input[type=url],.add-form select{
+    border:1px solid var(--line); border-radius:8px; padding:7px 10px; font-size:13.5px; background:#fff; color:var(--ink);
+  }
+  .add-form input:focus-visible,.add-form select:focus-visible{outline:2px solid var(--brand); outline-offset:1px}
+  .add-form .err{font-size:12.5px; color:var(--danger)}
+
+  /* toast */
+  #toast{
+    position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px);
+    background:#111827; color:#fff; border-radius:10px; padding:10px 16px; font-size:13.5px;
+    display:flex; align-items:center; gap:12px; box-shadow:0 8px 24px rgba(0,0,0,.25);
+    opacity:0; pointer-events:none; transition:opacity .18s, transform .18s; z-index:100; max-width:90vw;
+  }
+  #toast.show{opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(0)}
+  #toast button{
+    all:unset; cursor:pointer; color:#93c5fd; font-size:13px; font-weight:600; padding:2px 6px; border-radius:5px;
+  }
+  #toast button:hover{background:rgba(147,197,253,.15)}
+
+  footer{margin-top:36px; color:var(--muted); font-size:12px; text-align:center}
+
+  @media (max-width:480px){
+    .wrap{padding:16px 12px 40px}
+    header.top h1{font-size:19px}
+    .statbar{grid-template-columns:1fr 1fr}
+  }
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>书签分类器</h1>
+    <span class="sub">Chrome 书签导入 · 自动分类 · 搜索 · 导出（纯本地处理，数据不出浏览器）</span>
+  </header>
+
+  <button type="button" class="dropzone" id="dropzone" aria-describedby="dropHint">
+    <span class="big">点击选择文件，或把书签文件拖到这里</span>
+    <span class="small" id="dropHint">支持 Chrome「书签管理器 → 导出书签」生成的 HTML，或 Chrome 配置目录下的 Bookmarks JSON 文件</span>
+  </button>
+  <div class="loadbtns">
+    <button type="button" class="btn primary" id="btnPick">导入书签文件</button>
+    <button type="button" class="btn" id="btnSample">加载示例数据（先看效果）</button>
+    <button type="button" class="btn" id="btnClear" hidden>清空重来</button>
+  </div>
+  <input type="file" id="fileInput" accept=".html,.htm,.json" class="sr-only" aria-label="选择书签文件">
+
+  <div id="sampleBanner" class="banner info" hidden>
+    当前展示的是<b>内置示例数据</b>（不是你的书签）。按 Chrome 中 <code class="kbd">Ctrl+Shift+O</code> 打开书签管理器 → 右上角菜单 → 导出书签，把得到的 HTML 拖到上方即可替换。
+  </div>
+  <div id="errorBanner" class="banner error" hidden role="alert"></div>
+
+  <section id="emptyState">
+    <ol class="steps">
+      <li><b>第 1 步 · 导出书签</b><span>Chrome 按 <code class="kbd">Ctrl+Shift+O</code> 打开书签管理器，右上角「⋮」菜单 → <b>导出书签</b>，得到一个 HTML 文件。（也可直接上传配置目录里的 Bookmarks JSON）</span></li>
+      <li><b>第 2 步 · 导入本页</b><span>把文件拖进上方虚线框，或点击「导入书签文件」。全部解析和分类都在你的浏览器本地完成。</span></li>
+      <li><b>第 3 步 · 查看与导出</b><span>按类别浏览、搜索、筛选，并可一键导出「已按类别整理好的书签 HTML」。</span></li>
+    </ol>
+  </section>
+
+  <section id="statsSection" hidden aria-label="统计">
+    <div class="statbar">
+      <div class="stat"><div class="num" id="statTotal">0</div><div class="lbl">书签总数</div></div>
+      <div class="stat"><div class="num" id="statCats">0</div><div class="lbl">命中分类数</div></div>
+      <div class="stat"><div class="num" id="statTop">–</div><div class="lbl">书签最多的分类</div></div>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn primary" id="btnExport">导出分类结果 HTML</button>
+      <button type="button" class="btn" id="btnAdd">＋ 新增书签</button>
+      <button type="button" class="btn" id="btnAddCat">＋ 新增分类</button>
+    </div>
+    <form class="add-form" id="addForm" hidden novalidate>
+      <div class="row">
+        <label>标题 <input type="text" id="addTitle" placeholder="站点名称（留空则用网址）" size="24"></label>
+        <label>网址 <input type="text" id="addUrl" placeholder="example.com 或 https://…" size="30" required></label>
+        <label>分类 <select id="addCat" aria-label="选择分类"></select></label>
+      </div>
+      <div class="row">
+        <button type="submit" class="btn primary">保存</button>
+        <button type="button" class="btn" id="addCancel">取消</button>
+        <span class="err" id="addErr" role="alert"></span>
+      </div>
+    </form>
+    <form class="add-form" id="addCatForm" hidden novalidate>
+      <div class="row">
+        <label>分类名称 <input type="text" id="newCatName" placeholder="如：我的私藏、待读清单…" size="20" required></label>
+        <button type="submit" class="btn primary">创建</button>
+        <button type="button" class="btn" id="newCatCancel">取消</button>
+        <span class="err" id="newCatErr" role="alert"></span>
+      </div>
+    </form>
+  </section>
+
+  <section id="controlsSection" hidden aria-label="搜索与筛选">
+    <div class="controls">
+      <div class="searchbox">
+        <label class="sr-only" for="searchInput">搜索书签</label>
+        <input type="search" id="searchInput" placeholder="搜索标题、网址或所在文件夹…" autocomplete="off">
+      </div>
+    </div>
+    <div class="chips" id="chips" role="group" aria-label="按分类筛选"></div>
+    <p class="hint">操作提示：<b>右键按住</b>书签卡片拖到其他分类即可移动 · 悬停卡片点 <b>×</b> 删除（可撤销） · 所有修改自动保留，刷新不丢。</p>
+  </section>
+
+  <section id="results" aria-live="polite"></section>
+
+  <div id="toast" role="status"><span id="toastMsg"></span><button type="button" id="toastBtn" hidden></button></div>
+
+  <footer>
+    本页为纯前端 Demo：解析、分类、渲染、导出全部在浏览器本地完成，不上传任何数据。
+    分类基于域名规则 + 文件夹名提示，未命中规则的会归入「其他」。
+  </footer>
+</div>
+
+<script>
+/* CORE-START */
+(function(root){
+"use strict";
+
+/* ---------- 基础工具 ---------- */
+function decodeEntities(s){
+  if(!s) return "";
+  return String(s)
+    .replace(/&#x([0-9a-f]+);/gi, function(_,h){ return String.fromCodePoint(parseInt(h,16)); })
+    .replace(/&#(\d+);/g, function(_,d){ return String.fromCodePoint(parseInt(d,10)); })
+    .replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+    .replace(/&apos;/g,"'").replace(/&nbsp;/g,' ').replace(/&amp;/g,'&');
+}
+
+function hostOf(url){
+  try{
+    var u = new URL(url, "http://placeholder.local/");
+    var h = (u.hostname||"").toLowerCase();
+    if(h === "placeholder.local") return "";
+    return h.replace(/^www\./,"");
+  }catch(e){ return ""; }
+}
+
+function escHTML(s){
+  return String(s==null?"":s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+
+/* ---------- 分类定义 ---------- */
+var ROOT_NAMES = {
+  "书签栏":1,"其他书签":1,"移动设备书签":1,"书签菜单":1,
+  "bookmarks bar":1,"other bookmarks":1,"mobile bookmarks":1,"bookmarks menu":1,"bookmarks":1
+};
+
+var CATEGORY_DEFS = [
+  { id:"ai", name:"AI 工具", color:"#7c3aed",
+    hosts:["chatgpt.com","chat.openai.com","openai.com","claude.ai","anthropic.com","gemini.google.com","aistudio.google.com","bard.google.com","perplexity.ai","poe.com","midjourney.com","huggingface.co","kimi.moonshot.cn","kimi.com","moonshot.cn","chat.deepseek.com","deepseek.com","chatglm.cn","bigmodel.cn","xinghuo.xfyun.cn","yuanbao.tencent.com","doubao.com","sora.com","suno.com","suno.ai","runwayml.com","klingai.com","kling.kuaishou.com","civitai.com","cursor.com","cursor.sh","v0.dev","copilot.microsoft.com","grok.com","x.ai","mistral.ai","cohere.com","together.ai","groq.com","ollama.com","openrouter.ai"],
+    folderHints:["ai","人工智能","大模型","llm","gpt","chatgpt","prompt","aigc"] },
+  { id:"dev", name:"开发工具", color:"#1e40af",
+    hosts:["github.com","gitlab.com","gitee.com","bitbucket.org","stackoverflow.com","serverfault.com","superuser.com","stackexchange.com","npmjs.com","pypi.org","crates.io","pkg.go.dev","docker.com","hub.docker.com","vercel.com","netlify.com","render.com","fly.io","heroku.com","cloudflare.com","postman.com","regex101.com","codepen.io","jsfiddle.net","codesandbox.io","stackblitz.com","replit.com","sourcegraph.com","jetbrains.com","visualstudio.com","dev.azure.com","csdn.net","cnblogs.com","segmentfault.com","oschina.net","infoq.cn","v2ex.com","juejin.cn","leetcode.cn","leetcode.com","nowcoder.com","nginx.org","apache.org","redis.io","mysql.com","postgresql.org","mongodb.com","git-scm.com"],
+    folderHints:["开发","前端","后端","编程","代码","dev","github","运维","测试"] },
+  { id:"docs", name:"技术文档与学习", color:"#0e7490",
+    hosts:["developer.mozilla.org","react.dev","reactjs.org","vuejs.org","angular.io","angular.dev","nodejs.org","python.org","docs.python.org","go.dev","rust-lang.org","kotlinlang.org","swift.org","developer.apple.com","learn.microsoft.com","docs.microsoft.com","tailwindcss.com","vitejs.dev","vite.dev","webpack.js.org","typescriptlang.org","php.net","ruby-lang.org","w3schools.com","runoob.com","studygolang.com","liaoxuefeng.com","javascript.info","zh.javascript.info","web.dev","developer.chrome.com","freecodecamp.org","arxiv.org","coursera.org","edx.org","udemy.com","icourse163.org","kaggle.com","wolframalpha.com","ruanyifeng.com","es6.ruanyifeng.com"],
+    folderHints:["学习","文档","教程","课程","论文","study","learn","技术"] },
+  { id:"social", name:"社交社区", color:"#db2777",
+    hosts:["weibo.com","x.com","twitter.com","facebook.com","instagram.com","threads.net","reddit.com","quora.com","zhihu.com","tieba.baidu.com","douban.com","linkedin.com","mastodon.social","discord.com","telegram.org","t.me","vk.com","weixin.qq.com","mp.weixin.qq.com"],
+    folderHints:["社交","社区","论坛","微博","推特"] },
+  { id:"video", name:"视频与娱乐", color:"#dc2626",
+    hosts:["youtube.com","youtu.be","bilibili.com","iqiyi.com","youku.com","mgtv.com","v.qq.com","douyin.com","tiktok.com","netflix.com","disneyplus.com","primevideo.com","hulu.com","music.163.com","y.qq.com","kugou.com","kuwo.cn","spotify.com","ximalaya.com","huya.com","douyu.com","acfun.cn","steamcommunity.com","steampowered.com","epicgames.com","mihoyo.com"],
+    folderHints:["视频","娱乐","追剧","电影","音乐","摸鱼","游戏","直播"] },
+  { id:"news", name:"新闻资讯", color:"#ea580c",
+    hosts:["36kr.com","ifanr.com","sspai.com","ithome.com","cnbeta.com.tw","cnbeta.com","theverge.com","techcrunch.com","engadget.com","arstechnica.com","zdnet.com","jiemian.com","tmtpost.com","guancha.cn","zaobao.com.sg","bbc.com","bbc.co.uk","cnn.com","nytimes.com","reuters.com","apnews.com","theguardian.com","wsj.com","ft.com","bloomberg.com","news.sina.com.cn","news.qq.com","new.qq.com","news.163.com","www.163.com","news.sohu.com","www.sohu.com","people.com.cn","cctv.com"],
+    folderHints:["新闻","资讯","媒体","日报"] },
+  { id:"shop", name:"购物电商", color:"#16a34a",
+    hosts:["taobao.com","tmall.com","jd.com","1688.com","pinduoduo.com","yangkeduo.com","amazon.com","amazon.cn","amazon.de","amazon.co.jp","aliexpress.com","ebay.com","smzdm.com","mia.com","dewu.com","poizon.com","goofish.com","costco.com","walmart.com","mi.com","xiaomi.com"],
+    folderHints:["购物","电商","买买买"] },
+  { id:"design", name:"设计与素材", color:"#c026d3",
+    hosts:["figma.com","dribbble.com","behance.net","pinterest.com","unsplash.com","pexels.com","pixabay.com","iconfont.cn","iconify.design","fontawesome.com","canva.com","sketch.com","zeplin.io","ui.cn","zcool.com.cn","huaban.com","awwwards.com","coolors.co","framer.com","invisionapp.com"],
+    folderHints:["设计","素材","图片","配色","ui","插画"] },
+  { id:"work", name:"办公与效率", color:"#475569",
+    hosts:["notion.so","yuque.com","shimo.im","feishu.cn","larksuite.com","docs.qq.com","wolai.com","flomo.app","mubu.com","xmind.cn","processon.com","diagram.net","draw.io","app.diagrams.net","obsidian.md","logseq.com","todoist.com","ticktick.com","trello.com","asana.com","tower.im","airtable.com","coda.io","slack.com","teams.microsoft.com","zoom.us","dingtalk.com","mail.qq.com","mail.163.com","mail.google.com","gmail.com","calendar.google.com","drive.google.com","docs.google.com","jianguoyun.com","raycast.com","utools.cn","alfredapp.com"],
+    folderHints:["工作","办公","效率","邮件","邮箱","日程"] },
+  { id:"finance", name:"金融理财", color:"#ca8a04",
+    hosts:["xueqiu.com","eastmoney.com","futunn.com","tigerbrokers.com","longbridge.io","binance.com","okx.com","okex.com","coinbase.com","coingecko.com","coinmarketcap.com","tradingview.com","investing.com","10jqka.com.cn","cmbchina.com","icbc.com.cn","ccb.com","boc.cn","abchina.com","spdb.com.cn","pingan.com","alipay.com","wallstreetcn.com","finance.sina.com.cn"],
+    folderHints:["理财","投资","股票","基金","财经","加密","数字货币"] },
+  { id:"life", name:"生活服务", color:"#65a30d",
+    hosts:["meituan.com","dianping.com","ele.me","ctrip.com","trip.com","qunar.com","12306.cn","amap.com","map.baidu.com","mafengwo.cn","qyer.com","58.com","lianjia.com","ke.com","anjuke.com","haodf.com","xywy.com","dxy.com","weather.com.cn"],
+    folderHints:["生活","旅行","出行","租房","美食","健康","医院"] },
+  { id:"other", name:"其他", color:"#64748b", hosts:[], folderHints:[] }
+];
+
+function stripRootFolder(folder){
+  var parts = String(folder||"").split("/").filter(function(p){return p!=="";});
+  while(parts.length && ROOT_NAMES[parts[0].trim().toLowerCase()]) parts.shift();
+  return parts.join("/");
+}
+
+function classifyOne(url, folder){
+  var h = hostOf(url);
+  if(h){
+    for(var i=0;i<CATEGORY_DEFS.length;i++){
+      var c = CATEGORY_DEFS[i], hs = c.hosts;
+      for(var j=0;j<hs.length;j++){
+        if(h === hs[j] || h.slice(-(hs[j].length+1)) === "."+hs[j]) return c.id;
+      }
+    }
+  }
+  var f = String(folder||"").toLowerCase();
+  if(f){
+    for(var k=0;k<CATEGORY_DEFS.length;k++){
+      var hints = CATEGORY_DEFS[k].folderHints || [];
+      for(var m=0;m<hints.length;m++){ if(f.indexOf(hints[m]) !== -1) return CATEGORY_DEFS[k].id; }
+    }
+  }
+  return "other";
+}
+
+/* ---------- 解析：Netscape 书签 HTML（Chrome「导出书签」格式） ---------- */
+function parseNetscapeBookmarks(text){
+  var out = [];
+  var stack = [];
+  var pending = null;
+  var re = /<DT>\s*<H3[^>]*>([\s\S]*?)<\/H3[^>]*>|<DT>\s*<A\s([^>]*)>([\s\S]*?)<\/A>|<DL[^>]*>|<\/DL\s*>/gi;
+  var m;
+  while((m = re.exec(text))){
+    if(m[1] !== undefined && m[1] !== null){
+      pending = decodeEntities(m[1].trim());
+    } else if(m[2] !== undefined && m[2] !== null){
+      var hm = /HREF\s*=\s*"([^"]*)"/i.exec(m[2]) || /HREF\s*=\s*'([^']*)'/i.exec(m[2]);
+      if(hm){
+        var url = decodeEntities(hm[1]).trim();
+        if(url){
+          out.push({
+            title: decodeEntities(String(m[3]||"").trim()) || url,
+            url: url,
+            folder: stripRootFolder(stack.join("/"))
+          });
+        }
+      }
+    } else if(/^<DL/i.test(m[0])){
+      stack.push(pending != null ? pending : "");
+      pending = null;
+    } else {
+      stack.pop();
+    }
+  }
+  return out;
+}
+
+/* ---------- 解析：Chrome 配置目录 Bookmarks JSON ---------- */
+function parseChromeBookmarksJSON(text){
+  var data = JSON.parse(text);
+  var out = [];
+  function walk(node, path){
+    if(!node || typeof node !== "object") return;
+    if(node.type === "url" && node.url){
+      out.push({ title: String(node.name || node.url), url: node.url, folder: stripRootFolder(path.join("/")) });
+    } else if(node.type === "folder" && Array.isArray(node.children)){
+      var next = path.concat([String(node.name || "")]);
+      for(var i=0;i<node.children.length;i++) walk(node.children[i], next);
+    }
+  }
+  var roots = data && data.roots ? data.roots : {};
+  var keys = ["bookmark_bar","other","synced"];
+  for(var k=0;k<keys.length;k++){
+    var r = roots[keys[k]];
+    if(r && Array.isArray(r.children)) walk(r, [String(r.name || "")]);
+  }
+  return out;
+}
+
+/* ---------- 分类汇总 ---------- */
+function classifyBookmarks(items, overrides, customCats){
+  var ov = overrides || {};
+  var customs = customCats || [];
+  /* 有效分类序列 = 内置（除「其他」） + 自定义 + 「其他」兜底 */
+  var defs = [];
+  for(var i=0;i<CATEGORY_DEFS.length;i++) if(CATEGORY_DEFS[i].id !== "other") defs.push(CATEGORY_DEFS[i]);
+  for(var j=0;j<customs.length;j++) defs.push(customs[j]);
+  defs.push(CATEGORY_DEFS[CATEGORY_DEFS.length-1]);
+  var isCustom = {};
+  for(var m=0;m<customs.length;m++) isCustom[customs[m].id] = true;
+  var byId = {};
+  for(var k=0;k<defs.length;k++) byId[defs[k].id] = [];
+  for(var p=0;p<items.length;p++){
+    var it = items[p];
+    var ovCat = ov[it.url];
+    var cat = (ovCat && byId[ovCat]) ? ovCat : classifyOne(it.url, it.folder);
+    byId[cat].push({ title: it.title, url: it.url, folder: it.folder, category: cat });
+  }
+  var groups = [];
+  for(var c=0;c<defs.length;c++){
+    var def = defs[c];
+    /* 内置分类仅在有书签时出现；自定义分类是用户显式创建的，空也保留 */
+    if(byId[def.id].length || isCustom[def.id]) groups.push({ id:def.id, name:def.name, color:def.color, items:byId[def.id] });
+  }
+  return groups;
+}
+
+/* ---------- 导出已分类的 HTML ---------- */
+function buildExportHTML(groups, meta){
+  var title = (meta && meta.title) || "我的书签（已按类别整理）";
+  var total = groups.reduce(function(n,g){return n+g.items.length;},0);
+  var parts = [];
+  parts.push('<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>' + escHTML(title) + '</title>\n<style>body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:1280px;margin:0 auto;padding:28px 20px;color:#1f2430;background:#fafafa}h1{font-size:22px;margin:0 0 14px}#q{width:100%;max-width:480px;box-sizing:border-box;border:1px solid #e5e7eb;border-radius:8px;padding:9px 14px;font-size:14px;margin-bottom:6px;background:#fff}#q:focus{outline:2px solid #1e40af;outline-offset:1px}#count{color:#6b7280;font-size:12.5px;margin:0 0 14px}h2{font-size:15px;margin:22px 0 8px;padding-bottom:5px;border-bottom:2px solid #e5e7eb}h2.hide,ul.hide{display:none}ul{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}li{min-width:0;background:#fff;border:1px solid #eee;border-radius:8px;padding:7px 9px}a{color:#1e40af;text-decoration:none;font-size:12.5px;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}a:hover{text-decoration:underline}.d{color:#6b7280;font-size:10.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.f{color:#9ca3af;font-size:10px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}footer{margin-top:36px;color:#9ca3af;font-size:12px;text-align:center}</style>\n</head>\n<body>\n<h1>' + escHTML(title) + '</h1>\n<label for="q" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">搜索书签</label>\n<input type="search" id="q" placeholder="搜索标题、网址或原文件夹…">\n<p id="count">共 ' + total + ' 条书签</p>\n');
+  for(var i=0;i<groups.length;i++){
+    var g = groups[i];
+    if(!g.items.length) continue; /* 空分组（如刚建的自定义分类）不导出 */
+    parts.push('<h2 data-cat="' + escHTML(g.name) + '">' + escHTML(g.name) + '（<span data-n>' + g.items.length + '</span>）</h2>\n<ul>\n');
+    for(var j=0;j<g.items.length;j++){
+      var it = g.items[j];
+      parts.push('<li data-s="' + escHTML((it.title + " " + it.url + " " + it.folder).toLowerCase()) + '"><a href="' + escHTML(it.url) + '" target="_blank" rel="noopener" title="' + escHTML(it.title) + '\n' + escHTML(it.url) + '">' + escHTML(it.title) + '</a><span class="d">' + escHTML(hostOf(it.url)) + '</span>' + (it.folder ? '<span class="f">原目录：' + escHTML(it.folder) + '</span>' : '') + '</li>\n');
+    }
+    parts.push('</ul>\n');
+  }
+  parts.push('<footer>由「书签分类器」本地生成 · 共 ' + total + ' 条书签</footer>\n<script>\n(function(){\nvar q=document.getElementById("q"),count=document.getElementById("count");\nvar secs=[].slice.call(document.querySelectorAll("h2[data-cat]"));\nvar total=' + total + ';\nq.addEventListener("input",function(){\nvar k=q.value.trim().toLowerCase(),n=0;\nsecs.forEach(function(h){\nvar ul=h.nextElementSibling,items=ul.getElementsByTagName("li"),m=0;\nfor(var i=0;i<items.length;i++){var hit=!k||items[i].getAttribute("data-s").indexOf(k)!==-1;items[i].style.display=hit?"":"none";if(hit)m++;}\nn+=m;\nvar empty=m===0;h.classList.toggle("hide",empty);ul.classList.toggle("hide",empty);\nh.getElementsByTagName("span")[0].textContent=m;\n});\ncount.textContent=k?("匹配 "+n+" / "+total+" 条书签"):("共 "+total+" 条书签");\n});\n})();\n<\/script>\n</body>\n</html>');
+  return parts.join("");
+}
+
+var BookmarksCore = {
+  decodeEntities: decodeEntities,
+  hostOf: hostOf,
+  escHTML: escHTML,
+  stripRootFolder: stripRootFolder,
+  classifyOne: classifyOne,
+  parseNetscapeBookmarks: parseNetscapeBookmarks,
+  parseChromeBookmarksJSON: parseChromeBookmarksJSON,
+  classifyBookmarks: classifyBookmarks,
+  buildExportHTML: buildExportHTML,
+  CATEGORY_DEFS: CATEGORY_DEFS
+};
+if(typeof module !== "undefined" && module.exports) module.exports = BookmarksCore;
+root.BookmarksCore = BookmarksCore;
+})(typeof window !== "undefined" ? window : globalThis);
+/* CORE-END */
+
+/* ================= UI ================= */
+(function(){
+"use strict";
+var C = window.BookmarksCore;
+var $ = function(id){ return document.getElementById(id); };
+
+var state = { items: [], groups: [], activeCat: "all", query: "", isSample: false };
+var MAX_PER_CAT = 200;
+var LS_KEY = "bmCategorizerEdits.v1";
+var CUSTOM_COLORS = ["#0ea5e9","#f97316","#8b5cf6","#ec4899","#14b8a6","#f59e0b","#6366f1","#84cc16"];
+
+/* ---------- 编辑持久化（移动 / 删除 / 新增 / 自定义分类，localStorage 保存，刷新不丢） ---------- */
+function loadEdits(){
+  try{
+    var raw = localStorage.getItem(LS_KEY);
+    var e = raw ? JSON.parse(raw) : null;
+    if(e && typeof e === "object"){
+      return {
+        overrides: e.overrides || {},
+        deleted: e.deleted || {},
+        added: Array.isArray(e.added) ? e.added : [],
+        customCats: Array.isArray(e.customCats) ? e.customCats.filter(function(c){ return c && c.id && c.name; }) : []
+      };
+    }
+  }catch(err){ /* 忽略损坏数据 */ }
+  return { overrides: {}, deleted: {}, added: [], customCats: [] };
+}
+function saveEdits(){
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(state.edits)); }catch(err){ /* 隐私模式等场景静默降级 */ }
+}
+state.edits = loadEdits();
+
+/* ---------- 数据集持久化（导入的书签 + 示例态，刷新后可恢复） ---------- */
+var LS_DATA_KEY = "bmCategorizerData.v1";
+function persistData(){
+  if(!state.rawItems || !state.rawItems.length) return;
+  try{
+    localStorage.setItem(LS_DATA_KEY, JSON.stringify({
+      isSample: !!state.isSample,
+      items: state.rawItems.map(function(it){ return { title: it.title, url: it.url, folder: it.folder || "" }; })
+    }));
+  }catch(err){ /* 超出容量时静默放弃持久化 */ }
+}
+function loadData(){
+  try{
+    var raw = localStorage.getItem(LS_DATA_KEY);
+    var d = raw ? JSON.parse(raw) : null;
+    if(d && Array.isArray(d.items) && d.items.length) return d;
+  }catch(err){ /* 忽略损坏数据 */ }
+  return null;
+}
+function clearStored(){
+  try{ localStorage.removeItem(LS_KEY); localStorage.removeItem(LS_DATA_KEY); }catch(err){ /* 同上 */ }
+}
+
+function catNameOf(id){
+  var d = catDef(id); return d ? d.name : id;
+}
+
+/* ---------- toast ---------- */
+var toastTimer = null;
+function toast(msg, actionLabel, actionFn){
+  var t = $("toast"), m = $("toastMsg"), b = $("toastBtn");
+  m.textContent = msg;
+  if(actionLabel){
+    b.hidden = false; b.textContent = actionLabel;
+    b.onclick = function(){ hideToast(); if(actionFn) actionFn(); };
+  } else { b.hidden = true; b.onclick = null; }
+  t.classList.add("show");
+  if(toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, actionLabel ? 6000 : 3000);
+}
+function hideToast(){ $("toast").classList.remove("show"); if(toastTimer){ clearTimeout(toastTimer); toastTimer = null; } }
+$("toastBtn").addEventListener("click", function(){ /* onclick 已处理 */ });
+
+/* ---------- 示例数据（仅用于演示，可一键被真实文件替换） ---------- */
+var SAMPLE = [
+  ["ChatGPT","https://chatgpt.com/","AI 工具"],
+  ["Claude","https://claude.ai/chats","AI 工具"],
+  ["DeepSeek","https://chat.deepseek.com/","AI 工具"],
+  ["Kimi","https://kimi.moonshot.cn/","AI 工具"],
+  ["豆包","https://www.doubao.com/chat/","AI 工具"],
+  ["Perplexity","https://www.perplexity.ai/","AI 工具"],
+  ["Hugging Face","https://huggingface.co/","AI 工具/模型"],
+  ["Midjourney","https://www.midjourney.com/imagine","AI 工具/绘图"],
+  ["Cursor","https://cursor.com/","AI 工具/编程"],
+  ["GitHub","https://github.com/","开发/代码托管"],
+  ["Stack Overflow","https://stackoverflow.com/","开发/问答"],
+  ["npm","https://www.npmjs.com/","开发"],
+  ["Docker Hub","https://hub.docker.com/","开发/运维"],
+  ["V2EX","https://www.v2ex.com/","开发/社区"],
+  ["掘金","https://juejin.cn/","开发/博客"],
+  ["CodePen","https://codepen.io/","开发/前端"],
+  ["regex101","https://regex101.com/","开发/前端/工具"],
+  ["LeetCode 中国","https://leetcode.cn/","学习/刷题"],
+  ["MDN Web Docs","https://developer.mozilla.org/zh-CN/","学习/文档"],
+  ["React 官方文档","https://react.dev/","学习/文档"],
+  ["Vue.js","https://cn.vuejs.org/","学习/文档"],
+  ["Node.js","https://nodejs.org/zh-cn","学习/文档"],
+  ["Python 文档","https://docs.python.org/zh-cn/3/","学习/文档"],
+  ["菜鸟教程","https://www.runoob.com/","学习/教程"],
+  ["arXiv","https://arxiv.org/","学习/论文"],
+  ["Coursera","https://www.coursera.org/","学习/课程"],
+  ["知乎","https://www.zhihu.com/","社交"],
+  ["微博","https://weibo.com/","社交"],
+  ["X (Twitter)","https://x.com/","社交"],
+  ["Reddit","https://www.reddit.com/","社交"],
+  ["豆瓣","https://www.douban.com/","社交"],
+  ["哔哩哔哩","https://www.bilibili.com/","摸鱼/视频"],
+  ["YouTube","https://www.youtube.com/","摸鱼/视频"],
+  ["腾讯视频","https://v.qq.com/","摸鱼/追剧"],
+  ["抖音","https://www.douyin.com/","摸鱼"],
+  ["网易云音乐","https://music.163.com/","摸鱼/音乐"],
+  ["Steam","https://store.steampowered.com/","摸鱼/游戏"],
+  ["36氪","https://36kr.com/","资讯"],
+  ["少数派","https://sspai.com/","资讯"],
+  ["IT之家","https://www.ithome.com/","资讯"],
+  ["The Verge","https://www.theverge.com/","资讯"],
+  ["TechCrunch","https://techcrunch.com/","资讯"],
+  ["淘宝","https://www.taobao.com/","购物"],
+  ["京东","https://www.jd.com/","购物"],
+  ["天猫","https://www.tmall.com/","购物"],
+  ["什么值得买","https://www.smzdm.com/","购物"],
+  ["Amazon","https://www.amazon.com/","购物"],
+  ["Figma","https://www.figma.com/files","工作/设计"],
+  ["Dribbble","https://dribbble.com/","工作/设计/灵感"],
+  ["iconfont","https://www.iconfont.cn/","工作/设计/图标"],
+  ["Unsplash","https://unsplash.com/","工作/设计/图片"],
+  ["花瓣网","https://huaban.com/","工作/设计/收藏"],
+  ["飞书","https://www.feishu.cn/","工作"],
+  ["语雀","https://www.yuque.com/","工作/文档"],
+  ["Notion","https://www.notion.so/","工作"],
+  ["石墨文档","https://shimo.im/","工作/文档"],
+  ["ProcessOn","https://www.processon.com/","工作/画图"],
+  ["XMind","https://xmind.cn/","工作/思维导图"],
+  ["flomo","https://flomoapp.com/","工作/笔记"],
+  ["雪球","https://xueqiu.com/","理财"],
+  ["东方财富","https://www.eastmoney.com/","理财"],
+  ["TradingView","https://www.tradingview.com/","理财"],
+  ["币安","https://www.binance.com/zh-CN","理财/加密"],
+  ["美团","https://www.meituan.com/","生活"],
+  ["大众点评","https://www.dianping.com/","生活/美食"],
+  ["12306","https://www.12306.cn/index/","生活/出行"],
+  ["高德地图","https://www.amap.com/","生活/出行"],
+  ["携程旅行","https://www.ctrip.com/","生活/旅行"],
+  ["链家","https://bj.lianjia.com/","生活/租房"],
+  ["好大夫在线","https://www.haodf.com/","生活/健康"],
+  ["公司内网门户（示例占位站点）","https://portal.internal-demo.example.com/","工作"],
+  ["朋友推荐的个人博客（示例占位站点）","https://blog.someone-personal.example.net/","收藏"]
+];
+
+/* ---------- 渲染 ---------- */
+function catDef(id){
+  for(var i=0;i<C.CATEGORY_DEFS.length;i++) if(C.CATEGORY_DEFS[i].id===id) return C.CATEGORY_DEFS[i];
+  for(var j=0;j<state.edits.customCats.length;j++) if(state.edits.customCats[j].id===id) return state.edits.customCats[j];
+  return C.CATEGORY_DEFS[C.CATEGORY_DEFS.length-1];
+}
+function isCustomCat(id){
+  for(var i=0;i<state.edits.customCats.length;i++) if(state.edits.customCats[i].id===id) return true;
+  return false;
+}
+function setError(msg){
+  var b = $("errorBanner");
+  if(!msg){ b.hidden = true; b.textContent=""; return; }
+  b.textContent = msg; b.hidden = false;
+}
+function initialsOf(host){
+  var h = (host||"").split(".");
+  var name = h.length>1 ? h[h.length-2] : (h[0]||"?");
+  var ch = name.replace(/^www[0-9]*/,"").charAt(0);
+  return (ch||"?").toUpperCase();
+}
+
+function render(){
+  var has = state.items.length > 0;
+  $("emptyState").hidden = has;
+  $("statsSection").hidden = !has;
+  $("controlsSection").hidden = !has;
+  $("btnClear").hidden = !has;
+  $("sampleBanner").hidden = !(has && state.isSample);
+
+  if(!has){ $("results").innerHTML=""; return; }
+
+  var total = state.items.length;
+  var catCount = state.groups.filter(function(g){ return g.items.length > 0; }).length;
+  var top = state.groups.slice().sort(function(a,b){return b.items.length-a.items.length;})[0];
+  $("statTotal").textContent = total;
+  $("statCats").textContent = catCount;
+  $("statTop").textContent = top ? (top.name + " · " + top.items.length) : "–";
+
+  /* chips */
+  var chips = [{
+    id:"all", name:"全部", color:"#1f2430", count: total
+  }].concat(state.groups.map(function(g){ return {id:g.id, name:g.name, color:g.color, count:g.items.length}; }));
+  var chipsEl = $("chips");
+  chipsEl.innerHTML = "";
+  chips.forEach(function(ch){
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "chip";
+    b.setAttribute("aria-pressed", state.activeCat===ch.id ? "true" : "false");
+    b.innerHTML = '<span class="dot" style="background:'+ch.color+'"></span>' + C.escHTML(ch.name) + ' <span class="cnt">'+ch.count+'</span>';
+    b.addEventListener("click", function(){ state.activeCat = ch.id; render(); });
+    chipsEl.appendChild(b);
+  });
+
+  /* 结果 */
+  var q = state.query.trim().toLowerCase();
+  var resultsEl = $("results");
+  resultsEl.innerHTML = "";
+  var shownTotal = 0;
+  var view = state.activeCat==="all" ? state.groups : state.groups.filter(function(g){return g.id===state.activeCat;});
+  view.forEach(function(g){
+    var matched = g.items.filter(function(it){
+      if(!q) return true;
+      return (it.title||"").toLowerCase().indexOf(q)!==-1
+        || (it.url||"").toLowerCase().indexOf(q)!==-1
+        || (it.folder||"").toLowerCase().indexOf(q)!==-1;
+    });
+    if(!matched.length){
+      /* 空的自定义分类保留占位区块（搜索时隐藏），方便拖入书签 */
+      if(!q && g.items.length===0 && isCustomCat(g.id)){
+        var es = document.createElement("section");
+        es.className = "cat";
+        es.setAttribute("data-cat", g.id);
+        var eh = document.createElement("h2");
+        var ehb = document.createElement("button");
+        ehb.type = "button"; ehb.setAttribute("aria-expanded","true");
+        ehb.innerHTML = '<span class="dot" style="background:'+g.color+'"></span>'+C.escHTML(g.name)+' <span class="cnt">0 / 0</span><span class="arrow">▼</span>';
+        ehb.addEventListener("click", function(){
+          var col = es.classList.toggle("collapsed");
+          ehb.setAttribute("aria-expanded", col ? "false" : "true");
+        });
+        eh.appendChild(ehb);
+        eh.appendChild(makeCatDelBtn(g.id));
+        es.appendChild(eh);
+        var hint = document.createElement("p");
+        hint.className = "cat-empty";
+        hint.textContent = "这个分类还没有书签——右键按住卡片拖到这里，或用「＋ 新增书签」添加。";
+        es.appendChild(hint);
+        resultsEl.appendChild(es);
+      }
+      return;
+    }
+    shownTotal += matched.length;
+
+    var sec = document.createElement("section");
+    sec.className = "cat";
+    sec.setAttribute("data-cat", g.id);
+    var h = document.createElement("h2");
+    var hb = document.createElement("button");
+    hb.type = "button"; hb.setAttribute("aria-expanded","true");
+    hb.innerHTML = '<span class="dot" style="background:'+g.color+'"></span>'+C.escHTML(g.name)+' <span class="cnt">'+matched.length+' / '+g.items.length+'</span><span class="arrow">▼</span>';
+    hb.addEventListener("click", function(){
+      var col = sec.classList.toggle("collapsed");
+      hb.setAttribute("aria-expanded", col ? "false" : "true");
+    });
+    h.appendChild(hb);
+    if(isCustomCat(g.id)) h.appendChild(makeCatDelBtn(g.id));
+    sec.appendChild(h);
+
+    var grid = document.createElement("div");
+    grid.className = "grid";
+    var capped = matched.slice(0, MAX_PER_CAT);
+    capped.forEach(function(it){
+      var host = C.hostOf(it.url);
+      var card = document.createElement("div");
+      card.className = "card";
+      var av = document.createElement("span");
+      av.className = "avatar";
+      av.style.background = g.color + "1a"; /* ~10% alpha */
+      av.style.color = g.color;
+      av.textContent = initialsOf(host);
+      var meta = document.createElement("div");
+      meta.className = "meta";
+      var a = document.createElement("a");
+      a.className = "t"; a.href = it.url; a.target = "_blank"; a.rel = "noopener";
+      a.title = it.title + "\n" + it.url;
+      a.textContent = it.title;
+      var u = document.createElement("div");
+      u.className = "u"; u.textContent = host || it.url;
+      meta.appendChild(a); meta.appendChild(u);
+      if(it.folder){
+        var f = document.createElement("span");
+        f.className = "folder"; f.textContent = it.folder;
+        meta.appendChild(f);
+      }
+      card.appendChild(av); card.appendChild(meta);
+
+      /* 删除按钮 */
+      var del = document.createElement("button");
+      del.type = "button"; del.className = "del"; del.textContent = "×";
+      del.setAttribute("aria-label", "删除书签：" + it.title);
+      del.title = "删除（可撤销）";
+      del.addEventListener("click", function(ev){ ev.preventDefault(); ev.stopPropagation(); deleteItem(it); });
+      card.appendChild(del);
+
+      /* 右键拖拽移动：右键按下即准备拖拽 */
+      card.addEventListener("contextmenu", function(ev){ ev.preventDefault(); });
+      card.addEventListener("mousedown", function(ev){
+        if(ev.button === 2) startRightDrag(ev, card, it, g.id);
+      });
+
+      grid.appendChild(card);
+    });
+    sec.appendChild(grid);
+    if(matched.length > MAX_PER_CAT){
+      var note = document.createElement("p");
+      note.className = "more-note";
+      note.textContent = "该分类仅显示前 " + MAX_PER_CAT + " 条（共 " + matched.length + " 条），可用搜索缩小范围或直接导出查看全部。";
+      sec.appendChild(note);
+    }
+    resultsEl.appendChild(sec);
+  });
+  if(!shownTotal && !resultsEl.querySelector("section.cat")){
+    var e = document.createElement("div");
+    e.className = "empty-result";
+    e.textContent = "没有匹配「" + state.query + "」的书签，换个关键词试试。";
+    resultsEl.appendChild(e);
+  }
+}
+
+/* ---------- 数据载入（应用编辑：删除过滤 / 新增合并 / 手动分类覆盖） ---------- */
+function applyEdits(rawItems){
+  var e = state.edits;
+  var items = [];
+  for(var i=0;i<rawItems.length;i++){
+    var it = rawItems[i];
+    if(e.deleted[it.url]) continue;
+    items.push(it);
+  }
+  for(var j=0;j<e.added.length;j++){
+    var a = e.added[j];
+    if(e.deleted[a.url]) continue;
+    items.push({ title:a.title, url:a.url, folder:a.folder||"", cat:a.cat });
+  }
+  return items;
+}
+function rebuild(keepScroll){
+  var y = keepScroll ? window.scrollY : 0;
+  state.items = applyEdits(state.rawItems || []);
+  /* 手动分类覆盖优先；新增项未移动过时用新增时指定的分类 */
+  var ov = Object.assign({}, state.edits.overrides);
+  for(var i=0;i<state.edits.added.length;i++){
+    var a = state.edits.added[i];
+    if(!ov[a.url] && a.cat) ov[a.url] = a.cat;
+  }
+  state.groups = C.classifyBookmarks(state.items, ov, state.edits.customCats);
+  render();
+  if(keepScroll) window.scrollTo(0, y);
+}
+function loadItems(items, isSample){
+  if(!items || !items.length){
+    setError("没有解析到任何书签。请确认文件是 Chrome「书签管理器 → 导出书签」生成的 HTML，或 Chrome 配置目录下的 Bookmarks JSON 文件。");
+    return;
+  }
+  setError("");
+  state.rawItems = items;
+  state.activeCat = "all";
+  state.query = "";
+  $("searchInput").value = "";
+  state.isSample = !!isSample;
+  persistData();
+  rebuild(false);
+}
+
+function handleText(text, filename){
+  var t = (text||"").replace(/^\uFEFF/,"").trim();
+  if(!t){ setError("文件是空的，请重新导出书签后再试。"); return; }
+  var items = [];
+  var how = "";
+  try{
+    if(t.charAt(0) === "{"){
+      items = C.parseChromeBookmarksJSON(t); how = "Bookmarks JSON";
+    } else {
+      items = C.parseNetscapeBookmarks(t); how = "书签 HTML";
+    }
+  }catch(err){
+    setError("解析失败：" + (err && err.message ? err.message : err) + "。请确认文件来源为 Chrome 书签导出。");
+    return;
+  }
+  if(!items.length){
+    setError("没有解析到任何书签。请确认文件是 Chrome「书签管理器 → 导出书签」生成的 HTML，或 Chrome 配置目录下的 Bookmarks JSON 文件。");
+    return;
+  }
+  loadItems(items, false);
+  /* 简要反馈在统计区即可，不再额外弹层 */
+}
+
+function handleFile(file){
+  if(!file) return;
+  setError("");
+  var isType = !/\.(txt|pdf|docx?|xlsx?|pptx?|csv|png|jpe?g|gif|webp|zip|rar|7z|mp[34]|exe|dmg)$/i.test(file.name);
+  if(!isType){
+    setError("暂不支持该文件类型（" + file.name + "）。请选择 Chrome 导出的书签 HTML 或 Bookmarks JSON。");
+    return;
+  }
+  var reader = new FileReader();
+  reader.onerror = function(){ setError("读取文件失败，请重试。"); };
+  reader.onload = function(){ handleText(String(reader.result||""), file.name); };
+  reader.readAsText(file, "UTF-8");
+}
+
+/* ---------- 右键拖拽移动 ---------- */
+var drag = null;
+function cleanupDrag(d){
+  if(d.ghost && d.ghost.parentNode) d.ghost.parentNode.removeChild(d.ghost);
+  if(d.card && d.card.classList) d.card.classList.remove("drag-src");
+  if(d.overSec) d.overSec.classList.remove("drop-over");
+  document.body.classList.remove("dragging");
+}
+function startRightDrag(ev, card, item, fromCat){
+  if(drag) return;
+  drag = { card:card, item:item, fromCat:fromCat, ghost:null, started:false, sx:ev.clientX, sy:ev.clientY, overSec:null };
+  document.addEventListener("mousemove", onDragMove);
+  document.addEventListener("mouseup", onDragEnd);
+  document.addEventListener("keydown", onDragKey);
+}
+function dropTargetAt(x, y){
+  var els = document.elementsFromPoint(x, y);
+  for(var i=0;i<els.length;i++){
+    if(els[i] && els[i].closest){
+      var sec = els[i].closest("section.cat");
+      if(sec) return sec;
+    }
+  }
+  return null;
+}
+function onDragMove(e){
+  if(!drag) return;
+  if(!drag.started){
+    if(Math.abs(e.clientX - drag.sx) < 4 && Math.abs(e.clientY - drag.sy) < 4) return;
+    drag.started = true;
+    var g = drag.card.cloneNode(true);
+    g.classList.add("drag-ghost");
+    g.style.width = drag.card.offsetWidth + "px";
+    document.body.appendChild(g);
+    drag.ghost = g;
+    drag.card.classList.add("drag-src");
+    document.body.classList.add("dragging");
+  }
+  if(e.cancelable) e.preventDefault();
+  drag.ghost.style.left = (e.clientX + 10) + "px";
+  drag.ghost.style.top  = (e.clientY + 8) + "px";
+  var sec = dropTargetAt(e.clientX, e.clientY);
+  var own = drag.card.closest ? drag.card.closest("section.cat") : null;
+  var valid = (sec && sec !== own) ? sec : null;
+  if(drag.overSec && drag.overSec !== valid) drag.overSec.classList.remove("drop-over");
+  if(valid) valid.classList.add("drop-over");
+  drag.overSec = valid;
+}
+function detachDragListeners(){
+  document.removeEventListener("mousemove", onDragMove);
+  document.removeEventListener("mouseup", onDragEnd);
+  document.removeEventListener("keydown", onDragKey);
+}
+function onDragEnd(){
+  if(!drag) return;
+  var d = drag; drag = null;
+  detachDragListeners();
+  var targetCat = d.overSec ? d.overSec.getAttribute("data-cat") : null;
+  cleanupDrag(d);
+  if(targetCat && targetCat !== d.fromCat) moveItem(d.item, targetCat);
+}
+function onDragKey(e){
+  if(e.key === "Escape" && drag){
+    var d = drag; drag = null;
+    detachDragListeners();
+    cleanupDrag(d);
+  }
+}
+function moveItem(it, targetCat){
+  state.edits.overrides[it.url] = targetCat;
+  saveEdits();
+  rebuild(true);
+  toast("已移动到「" + catNameOf(targetCat) + "」");
+}
+
+/* ---------- 删除（可撤销） ---------- */
+function deleteItem(it){
+  var wasAdded = false, addedSnap = null;
+  for(var i=0;i<state.edits.added.length;i++){
+    if(state.edits.added[i].url === it.url){ wasAdded = true; addedSnap = state.edits.added[i]; break; }
+  }
+  if(wasAdded){
+    state.edits.added.splice(i, 1);
+  } else {
+    state.edits.deleted[it.url] = 1;
+  }
+  saveEdits();
+  rebuild(true);
+  toast("已删除「" + it.title + "」", "撤销", function(){
+    if(wasAdded && addedSnap){
+      state.edits.added.push(addedSnap);
+    } else {
+      delete state.edits.deleted[it.url];
+    }
+    saveEdits();
+    rebuild(true);
+  });
+}
+
+/* ---------- 新增书签 ---------- */
+function initAddForm(){
+  var sel = $("addCat");
+  sel.innerHTML = "";
+  C.CATEGORY_DEFS.forEach(function(def){
+    var o = document.createElement("option");
+    o.value = def.id; o.textContent = def.name;
+    sel.appendChild(o);
+  });
+  state.edits.customCats.forEach(function(def){
+    var o = document.createElement("option");
+    o.value = def.id; o.textContent = def.name + "（自定义）";
+    sel.appendChild(o);
+  });
+}
+$("btnAdd").addEventListener("click", function(){
+  initAddForm();
+  var f = $("addForm");
+  f.hidden = !f.hidden;
+  if(!f.hidden){
+    $("addCat").value = (state.activeCat !== "all" && state.activeCat) || "other";
+    $("addUrl").focus();
+  }
+});
+$("addCancel").addEventListener("click", function(){
+  $("addForm").hidden = true;
+  $("addErr").textContent = "";
+  $("addTitle").value = ""; $("addUrl").value = "";
+});
+$("addForm").addEventListener("submit", function(e){
+  e.preventDefault();
+  var errEl = $("addErr");
+  errEl.textContent = "";
+  var url = $("addUrl").value.trim();
+  if(!url){ errEl.textContent = "请填写网址。"; return; }
+  if(!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) url = "https://" + url;
+  try{ new URL(url); }
+  catch(err){ errEl.textContent = "网址格式不正确，请检查。"; return; }
+  for(var i=0;i<state.items.length;i++){
+    if(state.items[i].url === url){ errEl.textContent = "该书签已存在，无需重复添加。"; return; }
+  }
+  var title = $("addTitle").value.trim() || url;
+  var cat = $("addCat").value || "other";
+  state.edits.added.push({ title:title, url:url, folder:"新增", cat:cat });
+  saveEdits();
+  state.activeCat = cat;
+  state.query = ""; $("searchInput").value = "";
+  rebuild(true);
+  $("addForm").hidden = true;
+  $("addTitle").value = ""; $("addUrl").value = "";
+  toast("已新增「" + title + "」到「" + catNameOf(cat) + "」");
+});
+
+/* ---------- 自定义分类（创建 / 删除） ---------- */
+function makeCatDelBtn(catId){
+  var b = document.createElement("button");
+  b.type = "button"; b.className = "cat-del"; b.textContent = "✕";
+  b.setAttribute("aria-label", "删除该自定义分类");
+  b.title = "删除该自定义分类（其中的书签回到自动分类，可撤销）";
+  b.addEventListener("click", function(ev){ ev.preventDefault(); ev.stopPropagation(); deleteCustomCat(catId); });
+  return b;
+}
+function deleteCustomCat(catId){
+  var idx = -1;
+  for(var i=0;i<state.edits.customCats.length;i++) if(state.edits.customCats[i].id===catId){ idx=i; break; }
+  if(idx<0) return;
+  var snap = state.edits.customCats[idx];
+  /* 快照可撤销状态：指向该分类的移动记录 + 新增书签的固定分类 */
+  var restoreUrls = [];
+  for(var u in state.edits.overrides){ if(state.edits.overrides[u]===catId) restoreUrls.push(u); }
+  restoreUrls.forEach(function(u){ delete state.edits.overrides[u]; });
+  var affectedAdded = state.edits.added.filter(function(a){ return a.cat === catId; });
+  affectedAdded.forEach(function(a){ delete a.cat; });
+  state.edits.customCats.splice(idx,1);
+  if(state.activeCat===catId) state.activeCat = "all";
+  saveEdits();
+  rebuild(true);
+  toast("已删除分类「" + snap.name + "」，其中书签回到自动分类", "撤销", function(){
+    state.edits.customCats.splice(Math.min(idx, state.edits.customCats.length), 0, snap);
+    restoreUrls.forEach(function(u){ state.edits.overrides[u] = catId; });
+    affectedAdded.forEach(function(a){ a.cat = catId; });
+    saveEdits();
+    rebuild(true);
+  });
+}
+$("btnAddCat").addEventListener("click", function(){
+  var f = $("addCatForm");
+  f.hidden = !f.hidden;
+  if(!f.hidden){ $("newCatName").focus(); }
+});
+$("newCatCancel").addEventListener("click", function(){
+  $("addCatForm").hidden = true;
+  $("newCatErr").textContent = "";
+  $("newCatName").value = "";
+});
+$("addCatForm").addEventListener("submit", function(e){
+  e.preventDefault();
+  var errEl = $("newCatErr");
+  errEl.textContent = "";
+  var name = $("newCatName").value.trim();
+  if(!name){ errEl.textContent = "请填写分类名称。"; return; }
+  var lower = name.toLowerCase();
+  var dup = state.edits.customCats.some(function(c){ return String(c.name).toLowerCase() === lower; })
+    || C.CATEGORY_DEFS.some(function(d){ return d.name.toLowerCase() === lower; });
+  if(dup){ errEl.textContent = "已存在同名分类，请换个名字。"; return; }
+  var id = "c_" + Date.now().toString(36) + Math.floor(Math.random()*46656).toString(36);
+  var color = CUSTOM_COLORS[state.edits.customCats.length % CUSTOM_COLORS.length];
+  state.edits.customCats.push({ id:id, name:name, color:color });
+  saveEdits();
+  state.activeCat = id;
+  $("addCatForm").hidden = true;
+  $("newCatName").value = "";
+  rebuild(true);
+  toast("已创建分类「" + name + "」，把书签右键拖进来即可归入");
+});
+
+
+var dz = $("dropzone"), fi = $("fileInput");
+dz.addEventListener("click", function(){ fi.click(); });
+$("btnPick").addEventListener("click", function(){ fi.click(); });
+fi.addEventListener("change", function(){ if(fi.files && fi.files[0]) handleFile(fi.files[0]); fi.value=""; });
+["dragenter","dragover"].forEach(function(ev){
+  dz.addEventListener(ev, function(e){ e.preventDefault(); dz.classList.add("dragover"); });
+});
+["dragleave","drop"].forEach(function(ev){
+  dz.addEventListener(ev, function(e){ e.preventDefault(); dz.classList.remove("dragover"); });
+});
+dz.addEventListener("drop", function(e){
+  if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+/* 阻止整页误拖跳转 */
+window.addEventListener("dragover", function(e){ e.preventDefault(); });
+window.addEventListener("drop", function(e){ e.preventDefault(); });
+
+$("btnSample").addEventListener("click", function(){
+  loadItems(SAMPLE.map(function(s){ return {title:s[0], url:s[1], folder:s[2]}; }), true);
+});
+$("btnClear").addEventListener("click", function(){
+  state = { items:[], groups:[], rawItems:null, activeCat:"all", query:"", isSample:false, edits:{ overrides:{}, deleted:{}, added:[], customCats:[] } };
+  clearStored();
+  setError("");
+  render();
+});
+$("searchInput").addEventListener("input", function(e){
+  state.query = e.target.value; render();
+});
+
+$("btnExport").addEventListener("click", function(){
+  if(!state.groups.length) return;
+  var html = C.buildExportHTML(state.groups, { title: state.isSample ? "示例书签（演示导出）" : "我的书签（已按类别整理）" });
+  var blob = new Blob([html], {type:"text/html;charset=utf-8"});
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "categorized-bookmarks.html";
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 0);
+});
+
+/* ---------- 初始化：优先恢复上次会话（导入的书签 + 全部编辑） ---------- */
+(function restore(){
+  var saved = loadData();
+  if(saved && saved.items.length){
+    state.rawItems = saved.items;
+    state.isSample = !!saved.isSample;
+    rebuild(false);
+  }
+})();
+
+render();
+})();
+</script>
+</body>
+</html>
